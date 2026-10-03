@@ -168,3 +168,21 @@ inspection audit trail, and SOP-grounded explanations.
 MVTec Anomaly Detection dataset, `tile` category (230 train / 117 test
 images). Licensed CC BY-NC-SA 4.0, © MVTec Software GmbH — not included in
 this repository.
+
+
+## Repository layout
+
+```text
+app/                      service layer: API, inference, database, RAG, dashboard
+scripts/
+  build_inspector.py      build the anomaly model (active pipeline entry point)
+  create_database.py      create the SQL Server database
+  experiments/            the full model-development history:
+                          autoencoder baseline, patch-feature baselines,
+                          threshold-leakage diagnosis, localization evals
+                          (kept because the rejected approaches and the
+                          reasons for rejecting them are part of the work)
+data/quality_sop.md       ceramic inspection SOP (RAG knowledge base)
+data/tile/                MVTec AD tile images (NOT in git - see license)
+artifacts/                trained model + model card (NOT in git)
+```
