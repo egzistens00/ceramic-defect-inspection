@@ -1,0 +1,8 @@
+data/*
+!data/quality_sop.md
+artifacts/
+__pycache__/
+*.pyc
+.env
+.vscode/
+

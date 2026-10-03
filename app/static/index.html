@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tile Inspection Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", system-ui, sans-serif; }
+  body { background: #0f1419; color: #e6e6e6; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .subtitle { color: #8a94a0; font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 420px 1fr; gap: 20px; }
+  .card { background: #161c23; border: 1px solid #232c36; border-radius: 10px; padding: 18px; }
+  .card h2 { font-size: 14px; color: #8a94a0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  .dropzone { border: 2px dashed #34404d; border-radius: 10px; padding: 36px 16px; text-align: center; cursor: pointer; transition: border-color .2s; }
+  .dropzone:hover { border-color: #4a8fd4; }
+  .dropzone p { color: #8a94a0; font-size: 13px; margin-top: 8px; }
+  canvas { max-width: 100%; border-radius: 8px; display: block; }
+  .result { margin-top: 16px; display: none; }
+  .tier { display: inline-block; padding: 4px 14px; border-radius: 20px; font-weight: 600; font-size: 14px; }
+  .tier.accept { background: #123322; color: #47d97c; }
+  .tier.review { background: #3a3012; color: #e5c14a; }
+  .tier.reject { background: #3a1414; color: #ef6b6b; }
+  .score { font-size: 28px; font-weight: 700; margin: 8px 0 2px; }
+  .detail { color: #8a94a0; font-size: 12px; }
+  .buttons { display: flex; gap: 10px; margin-top: 14px; }
+  .btn { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-defective { background: #3a1414; color: #ef6b6b; }
+  .btn-normal { background: #123322; color: #47d97c; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .feedback-msg { margin-top: 10px; font-size: 13px; color: #47d97c; display: none; }
+  .guidance { margin-top: 14px; background: #10161d; border: 1px solid #232c36; border-radius: 8px; padding: 12px; display: none; }
+  .guidance h3 { font-size: 12px; color: #8a94a0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .guidance p { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+  .guidance .src { margin-top: 8px; font-size: 11px; color: #5a6470; }
+  .btn-why { width: 100%; margin-top: 12px; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; background: #1b2735; color: #6fb3e8; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #8a94a0; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid #232c36; }
+  td { padding: 6px 8px; border-bottom: 1px solid #1d252e; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { background: #161c23; border: 1px solid #232c36; border-radius: 10px; padding: 14px; text-align: center; }
+  .stat .num { font-size: 26px; font-weight: 700; }
+  .stat .lbl { color: #8a94a0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+  .num.green { color: #47d97c; } .num.yellow { color: #e5c14a; } .num.red { color: #ef6b6b; }
+  .refresh { background: none; border: 1px solid #34404d; color: #8a94a0; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; float: right; }
+</style>
+</head>
+<body>
+<h1>Tile Inspection Dashboard</h1>
+<p class="subtitle">AI visual quality inspection &mdash; accept / review / reject with human feedback loop</p>
+
+<div class="grid">
+  <div>
+    <div class="card">
+      <h2>Inspect a tile</h2>
+      <div class="dropzone" id="dropzone">
+        <div><strong>Click or drop an image here</strong></div>
+        <p>PNG or JPG &mdash; e.g. data/tile/test/...</p>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <div class="result" id="result">
+        <canvas id="canvas" width="384" height="384"></canvas>
+        <div style="margin-top:12px"><span class="tier" id="tierBadge">—</span></div>
+        <div class="score" id="score">—</div>
+        <div class="detail" id="detail"></div>
+        <div class="buttons">
+          <button class="btn btn-defective" id="btnDefective">Human: Defective</button>
+          <button class="btn btn-normal" id="btnNormal">Human: Normal</button>
+        </div>
+        <div class="feedback-msg" id="feedbackMsg">✓ Feedback recorded &mdash; stored for future model retraining</div>
+        <button class="btn-why" id="btnWhy">Why this decision? (AI + SOP)</button>
+        <div class="guidance" id="guidance">
+          <h3>Quality guidance</h3>
+          <p id="guidanceText"></p>
+          <div class="src" id="guidanceSrc"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="stats" id="stats"></div>
+    <div class="card">
+      <h2>Recent inspections <button class="refresh" onclick="loadHistory()">Refresh</button></h2>
+      <table>
+        <thead><tr><th>Time (UTC)</th><th>File</th><th>Score</th><th>Tier</th><th>Human label</th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "";
+let currentInspection = null;
+
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+dropzone.onclick = () => fileInput.click();
+dropzone.ondragover = e => { e.preventDefault(); dropzone.style.borderColor = "#4a8fd4"; };
+dropzone.ondragleave = () => dropzone.style.borderColor = "#34404d";
+dropzone.ondrop = e => { e.preventDefault(); dropzone.style.borderColor = "#34404d"; if (e.dataTransfer.files.length) inspect(e.dataTransfer.files[0]); };
+fileInput.onchange = () => { if (fileInput.files.length) inspect(fileInput.files[0]); };
+
+async function inspect(file) {
+  document.getElementById("result").style.display = "none";
+  document.getElementById("feedbackMsg").style.display = "none";
+  setButtons(false);
+  const form = new FormData();
+  form.append("image", file);
+  const res = await fetch(API + "/api/v1/inspections", { method: "POST", body: form });
+  if (!res.ok) { alert("Inspection failed: " + (await res.text())); return; }
+  const data = await res.json();
+  currentInspection = data;
+  drawResult(file, data);
+  document.getElementById("result").style.display = "block";
+  setButtons(true);
+  loadHistory(); loadMetrics();
+}
+
+function drawResult(file, data) {
+  const badge = document.getElementById("tierBadge");
+  badge.textContent = data.tier.toUpperCase();
+  badge.className = "tier " + data.tier;
+  document.getElementById("score").textContent = data.score.toFixed(4);
+  document.getElementById("detail").textContent =
+    `review > ${data.thresholds.review} · reject > ${data.thresholds.reject} · ${data.model_version}`;
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = img.width; canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    const heat = data.heat;
+    const rows = heat.length, cols = heat[0].length;
+    let max = 0; heat.forEach(r => r.forEach(v => { if (v > max) max = v; }));
+    if (max <= 0) max = 1;
+    const cellW = canvas.width / cols, cellH = canvas.height / rows;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const intensity = heat[r][c] / max;
+      ctx.fillStyle = `rgba(239,80,80,${(intensity ** 1.6) * 0.55})`;
+      ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
+    }
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+async function sendFeedback(label) {
+  if (!currentInspection) return;
+  setButtons(false);
+  const res = await fetch(`${API}/api/v1/feedback/${currentInspection.inspection_id}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label })
+  });
+  if (res.ok) {
+    document.getElementById("feedbackMsg").style.display = "block";
+    loadHistory(); loadMetrics();
+  } else { alert("Feedback failed"); setButtons(true); }
+}
+
+function setButtons(enabled) {
+  document.getElementById("btnDefective").disabled = !enabled;
+  document.getElementById("btnNormal").disabled = !enabled;
+}
+document.getElementById("btnDefective").onclick = () => sendFeedback("defective");
+document.getElementById("btnNormal").onclick = () => sendFeedback("normal");
+document.getElementById("btnWhy").onclick = async () => {
+  if (!currentInspection) return;
+  const res = await fetch(`${API}/api/v1/quality-guidance/${currentInspection.inspection_id}`);
+  if (!res.ok) { alert("Guidance failed"); return; }
+  const data = await res.json();
+  document.getElementById("guidanceText").textContent = data.explanation;
+  document.getElementById("guidanceSrc").textContent =
+    `source: ${data.source} · SOP sections: ${data.sop_sections.map(s => s.text.split(":")[0]).join(", ")}`;
+  document.getElementById("guidance").style.display = "block";
+};
+
+async function loadMetrics() {
+  const res = await fetch(API + "/api/v1/metrics");
+  const m = await res.json();
+  const html = `
+    <div class="stat"><div class="num">${m.total}</div><div class="lbl">Inspections</div></div>
+    <div class="stat"><div class="num green">${m.tiers.accept}</div><div class="lbl">Auto-accepted</div></div>
+    <div class="stat"><div class="num yellow">${m.tiers.review}</div><div class="lbl">Human review</div></div>
+    <div class="stat"><div class="num red">${m.tiers.reject}</div><div class="lbl">Auto-rejected</div></div>`;
+  document.getElementById("stats").innerHTML = html;
+}
+
+async function loadHistory() {
+  const res = await fetch(API + "/api/v1/inspections?limit=10");
+  const data = await res.json();
+  const tbody = document.getElementById("historyBody");
+  tbody.innerHTML = data.inspections.map(i => `
+    <tr>
+      <td>${i.created_at.slice(0, 19).replace("T", " ")}</td>
+      <td>${i.filename}</td>
+      <td>${i.score.toFixed(4)}</td>
+      <td><span class="tier ${i.tier}">${i.tier}</span></td>
+      <td>${i.reviewed ? i.reviewer_label : "—"}</td>
+    </tr>`).join("");
+}
+
+loadHistory(); loadMetrics();
+</script>
+</body>
+</html>
