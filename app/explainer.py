@@ -58,11 +58,13 @@ class Explainer:
             response = httpx.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "max_tokens": 300},
+                json={"model": "openai/gpt-oss-20b", "messages": [{"role": "user", "content": prompt}], "max_tokens": 1200, "reasoning_effort": "low"},
                 timeout=30,
             )
             response.raise_for_status()
-            text = response.json()["choices"][0]["message"]["content"].strip()
+            text = (response.json()["choices"][0]["message"].get("content") or "").strip()
+            if not text:
+                raise ValueError("empty LLM response")
         else:
             from openai import OpenAI
 
