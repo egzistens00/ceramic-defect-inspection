@@ -16,20 +16,21 @@ Inspection result:
 - Decision tier: {tier}
 - Anomaly score: {score} (review threshold {review}, reject threshold {reject})
 - Anomaly location on the tile: {heat_region}
+- Identified defect type: {defect_type}
 - Human verdict: {human_verdict}
 
 Relevant sections from the quality control SOP:
 {sop_sections}
 
 Write 3 short paragraphs max:
-1. What the inspection found, in plain words. IMPORTANT: the AI only detects
-THAT something is abnormal and WHERE it is — it does not identify the defect
-type. Tell the worker to examine the highlighted region ({heat_region}) and
-compare it against the defect types described in the SOP sections above.
-2. What the worker should do next, based strictly on the SOP sections above.
+1. What the inspection found, in plain words. If a defect type was
+identified, state it plainly (e.g. "identified as oil contamination"). If
+not identified, say the AI only located the abnormal region and tell the
+worker to compare it against the defect types in the SOP.
+2. What the worker should do next, based STRICTLY on the handling steps in
+the SOP sections above for this defect type.
 3. One sentence on why the score means this tier.
-Do not invent procedures not in the SOP. Do not claim a specific defect type
-was identified. Be concise."""
+Do not invent procedures not in the SOP. Be concise."""
 
 
 class Explainer:
@@ -37,17 +38,17 @@ class Explainer:
         self.api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY")
         self.provider = "groq" if os.environ.get("GROQ_API_KEY") else ("openai" if os.environ.get("OPENAI_API_KEY") else None)
 
-    def explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str = "not computed") -> dict:
+    def explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str = "not computed", defect_type: str | None = None) -> dict:
         if self.provider:
             try:
-                return self._llm_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region)
+                return self._llm_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region, defect_type)
             except Exception as error:
-                fallback = self._template_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region)
+                fallback = self._template_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region, defect_type)
                 fallback["note"] = f"LLM unavailable ({type(error).__name__}); template explanation shown"
                 return fallback
-        return self._template_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region)
+        return self._template_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region, defect_type)
 
-    def _llm_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str) -> dict:
+    def _llm_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str, defect_type: str | None) -> dict:
         sections_text = "\n\n".join(f"[SOP] {section['text'][:800]}" for section in sop_sections)
         prompt = PROMPT_TEMPLATE.format(
             tier=tier,
@@ -57,6 +58,7 @@ class Explainer:
             human_verdict=human_verdict or "not yet reviewed",
             sop_sections=sections_text,
             heat_region=heat_region,
+            defect_type=defect_type.replace("_", " ") if defect_type else "not identified (the detector flags abnormal regions; defect classification is available only when confidence is sufficient)",
         )
         if self.provider == "groq":
             import httpx
@@ -79,7 +81,7 @@ class Explainer:
             text = completion.choices[0].message.content.strip()
         return {"explanation": text, "source": f"llm:{self.provider}", "sop_sections": sop_sections}
 
-    def _template_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str = "not computed") -> dict:
+    def _template_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str = "not computed", defect_type: str | None = None) -> dict:
         context = TIER_CONTEXT.get(tier, "Inspection completed.")
         action = {
             "accept": "The tile can continue to packaging.",
@@ -87,8 +89,9 @@ class Explainer:
             "reject": "Remove the tile from the line for quarantined inspection and log the machine and batch number.",
         }.get(tier, "Follow the SOP.")
         verdict = f" A human reviewer labeled this tile as {human_verdict}." if human_verdict else ""
+        defect = f" Identified as {defect_type.replace('_', ' ')} in the {heat_region}." if defect_type else f" The anomaly is concentrated in the {heat_region}."
         return {
-            "explanation": f"{context} The anomaly score is {score}, with the review threshold at {thresholds.get('review')} and the reject threshold at {thresholds.get('reject')}. The anomaly is concentrated in the {heat_region}.{verdict} {action}",
+            "explanation": f"{context}{defect} The anomaly score is {score}, with the review threshold at {thresholds.get('review')} and the reject threshold at {thresholds.get('reject')}.{verdict} {action}",
             "source": "template",
             "sop_sections": sop_sections,
         }

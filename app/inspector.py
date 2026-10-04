@@ -16,6 +16,7 @@ class Inspector:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         data = torch.load(artifact_path, map_location=self.device)
         self.bank = data["bank"].to(self.device)
+        self.defect_banks = {name: tensor.to(self.device) for name, tensor in data.get("defect_banks", {}).items()}
         self.review_threshold = float(data["review_threshold"])
         self.reject_threshold = float(data["reject_threshold"])
         weights = ResNet18_Weights.DEFAULT
@@ -36,14 +37,34 @@ class Inspector:
         distances = (1 - similarity.max(dim=1).values).reshape(height, width).cpu().numpy()
         score = float(distances.max())
         tier = "reject" if score > self.reject_threshold else "review" if score > self.review_threshold else "accept"
+        defect_type, defect_confidence = self._identify_defect(flat)
+        if tier == "accept":
+            defect_type, defect_confidence = None, None
         self.last_heat = [[round(float(value), 4) for value in row] for row in distances]
         return {
             "model_version": MODEL_VERSION,
             "score": round(score, 4),
             "tier": tier,
+            "defect_type": defect_type,
+            "defect_confidence": defect_confidence,
             "thresholds": {"review": round(self.review_threshold, 4), "reject": round(self.reject_threshold, 4)},
             "heat": self.last_heat,
         }
+
+    def _identify_defect(self, flat: torch.Tensor) -> tuple[str | None, float | None]:
+        """Classify anomalous patches against per-defect-type banks (nearest-neighbor vote)."""
+        if not self.defect_banks:
+            return None, None
+        distances = 1 - (flat @ self.bank.T).max(dim=1).values
+        top = torch.topk(distances, 10).indices
+        scores = {}
+        for name, bank in self.defect_banks.items():
+            similarity = flat[top] @ bank.T
+            scores[name] = float((1 - similarity.max(dim=1).values).mean())
+        best = min(scores, key=scores.get)
+        sorted_scores = sorted(scores.values())
+        margin = (sorted_scores[1] - sorted_scores[0]) / (sorted_scores[-1] + 1e-9)
+        return best, round(margin, 4)
 
 
 @lru_cache(maxsize=1)

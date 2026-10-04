@@ -31,6 +31,14 @@ IF COL_LENGTH('dbo.inspections', 'heat') IS NULL
 BEGIN
     ALTER TABLE dbo.inspections ADD heat NVARCHAR(MAX) NULL;
 END;
+IF COL_LENGTH('dbo.inspections', 'defect_type') IS NULL
+BEGIN
+    ALTER TABLE dbo.inspections ADD defect_type NVARCHAR(32) NULL;
+END;
+IF COL_LENGTH('dbo.inspections', 'defect_confidence') IS NULL
+BEGIN
+    ALTER TABLE dbo.inspections ADD defect_confidence FLOAT NULL;
+END;
 """
 
 
@@ -44,18 +52,18 @@ def init_schema() -> None:
         connection.commit()
 
 
-def insert_inspection(inspection_id: str, filename: str, model_version: str, score: float, tier: str, heat: str | None = None) -> None:
+def insert_inspection(inspection_id: str, filename: str, model_version: str, score: float, tier: str, heat: str | None = None, defect_type: str | None = None, defect_confidence: float | None = None) -> None:
     with get_connection() as connection:
         connection.execute(
-            "INSERT INTO dbo.inspections (inspection_id, filename, model_version, score, tier, heat) VALUES (?, ?, ?, ?, ?, ?)",
-            (uuid.UUID(inspection_id), filename, model_version, score, tier, heat),
+            "INSERT INTO dbo.inspections (inspection_id, filename, model_version, score, tier, heat, defect_type, defect_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (uuid.UUID(inspection_id), filename, model_version, score, tier, heat, defect_type, defect_confidence),
         )
         connection.commit()
 
 
 def fetch_inspection(inspection_id: str):
     with get_connection() as connection:
-        cursor = connection.execute("SELECT inspection_id, filename, model_version, score, tier, heat, reviewed, reviewer_label, created_at FROM dbo.inspections WHERE inspection_id = ?", (uuid.UUID(inspection_id),))
+        cursor = connection.execute("SELECT inspection_id, filename, model_version, score, tier, heat, defect_type, defect_confidence, reviewed, reviewer_label, created_at FROM dbo.inspections WHERE inspection_id = ?", (uuid.UUID(inspection_id),))
         return cursor.fetchone()
 
 
@@ -106,6 +114,8 @@ def row_to_dict(row) -> dict:
         "score": row.score,
         "tier": row.tier,
         "heat": json.loads(row.heat) if getattr(row, "heat", None) else None,
+        "defect_type": getattr(row, "defect_type", None),
+        "defect_confidence": getattr(row, "defect_confidence", None),
         "reviewed": bool(row.reviewed),
         "reviewer_label": row.reviewer_label,
         "created_at": row.created_at.isoformat() if isinstance(row.created_at, datetime) else str(row.created_at),

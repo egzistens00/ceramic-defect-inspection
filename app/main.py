@@ -52,7 +52,7 @@ async def create_inspection(image: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="uploaded file is not a valid image")
     result = get_inspector().inspect(pil_image)
     inspection_id = uuid.uuid4().hex
-    database.insert_inspection(inspection_id, image.filename or "unknown", result["model_version"], result["score"], result["tier"], json.dumps(result["heat"]))
+    database.insert_inspection(inspection_id, image.filename or "unknown", result["model_version"], result["score"], result["tier"], json.dumps(result["heat"]), result.get("defect_type"), result.get("defect_confidence"))
     return {"inspection_id": inspection_id, "filename": image.filename, **result}
 
 
@@ -113,7 +113,11 @@ def quality_guidance(inspection_id: str):
         raise HTTPException(status_code=404, detail="inspection not found")
     record = database.row_to_dict(row)
     inspector = get_inspector()
-    query = "defect types crack glue strip gray stroke oil rough surface handling procedure " + f"tier {record['tier']}"
+    defect_type = record.get("defect_type")
+    if defect_type:
+        query = f"defect {defect_type.replace('_', ' ')} handling procedure " + f"tier {record['tier']}"
+    else:
+        query = "defect types crack glue strip gray stroke oil rough surface handling procedure " + f"tier {record['tier']}"
     if record["reviewer_label"]:
         query += f" human verdict {record['reviewer_label']}"
     sop_sections = get_rag().retrieve(query, top_k=3)
@@ -125,8 +129,9 @@ def quality_guidance(inspection_id: str):
         human_verdict=record["reviewer_label"],
         sop_sections=sop_sections,
         heat_region=heat_region,
+        defect_type=defect_type,
     )
-    return {"inspection_id": inspection_id, "heat_region": heat_region, **guidance}
+    return {"inspection_id": inspection_id, "heat_region": heat_region, "defect_type": defect_type, **guidance}
 
 
 @app.get("/")
