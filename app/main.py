@@ -86,6 +86,7 @@ def metrics():
 
 
 @app.post("/api/v1/quality-guidance/{inspection_id}")
+@app.get("/api/v1/quality-guidance/{inspection_id}")
 def quality_guidance(inspection_id: str):
     row = database.fetch_inspection(inspection_id)
     if row is None:

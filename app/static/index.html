@@ -165,7 +165,7 @@ document.getElementById("btnDefective").onclick = () => sendFeedback("defective"
 document.getElementById("btnNormal").onclick = () => sendFeedback("normal");
 document.getElementById("btnWhy").onclick = async () => {
   if (!currentInspection) return;
-  const res = await fetch(`${API}/api/v1/quality-guidance/${currentInspection.inspection_id}`);
+  const res = await fetch(`${API}/api/v1/quality-guidance/${currentInspection.inspection_id}`, { method: "POST" });
   if (!res.ok) { alert("Guidance failed"); return; }
   const data = await res.json();
   document.getElementById("guidanceText").textContent = data.explanation;
