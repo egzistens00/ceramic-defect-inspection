@@ -9,22 +9,27 @@ TIER_CONTEXT = {
     "reject": "The tile failed the automatic inspection.",
 }
 
-PROMPT_TEMPLATE = """You are a quality-control assistant for a tile manufacturing line.
+PROMPT_TEMPLATE = """You are a quality-control assistant for a ceramic tile manufacturing line.
 Explain an AI inspection result to a factory worker in simple English.
 
 Inspection result:
 - Decision tier: {tier}
 - Anomaly score: {score} (review threshold {review}, reject threshold {reject})
+- Anomaly location on the tile: {heat_region}
 - Human verdict: {human_verdict}
 
 Relevant sections from the quality control SOP:
 {sop_sections}
 
 Write 3 short paragraphs max:
-1. What the inspection found, in plain words.
+1. What the inspection found, in plain words. IMPORTANT: the AI only detects
+THAT something is abnormal and WHERE it is — it does not identify the defect
+type. Tell the worker to examine the highlighted region ({heat_region}) and
+compare it against the defect types described in the SOP sections above.
 2. What the worker should do next, based strictly on the SOP sections above.
 3. One sentence on why the score means this tier.
-Do not invent procedures that are not in the SOP. Be concise."""
+Do not invent procedures not in the SOP. Do not claim a specific defect type
+was identified. Be concise."""
 
 
 class Explainer:
@@ -32,17 +37,17 @@ class Explainer:
         self.api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY")
         self.provider = "groq" if os.environ.get("GROQ_API_KEY") else ("openai" if os.environ.get("OPENAI_API_KEY") else None)
 
-    def explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict]) -> dict:
+    def explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str = "not computed") -> dict:
         if self.provider:
             try:
-                return self._llm_explain(tier, score, thresholds, human_verdict, sop_sections)
+                return self._llm_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region)
             except Exception as error:
-                fallback = self._template_explain(tier, score, thresholds, human_verdict, sop_sections)
+                fallback = self._template_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region)
                 fallback["note"] = f"LLM unavailable ({type(error).__name__}); template explanation shown"
                 return fallback
-        return self._template_explain(tier, score, thresholds, human_verdict, sop_sections)
+        return self._template_explain(tier, score, thresholds, human_verdict, sop_sections, heat_region)
 
-    def _llm_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict]) -> dict:
+    def _llm_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str) -> dict:
         sections_text = "\n\n".join(f"[SOP] {section['text'][:800]}" for section in sop_sections)
         prompt = PROMPT_TEMPLATE.format(
             tier=tier,
@@ -51,6 +56,7 @@ class Explainer:
             reject=thresholds.get("reject"),
             human_verdict=human_verdict or "not yet reviewed",
             sop_sections=sections_text,
+            heat_region=heat_region,
         )
         if self.provider == "groq":
             import httpx
@@ -73,7 +79,7 @@ class Explainer:
             text = completion.choices[0].message.content.strip()
         return {"explanation": text, "source": f"llm:{self.provider}", "sop_sections": sop_sections}
 
-    def _template_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict]) -> dict:
+    def _template_explain(self, tier: str, score: float, thresholds: dict, human_verdict: str | None, sop_sections: list[dict], heat_region: str = "not computed") -> dict:
         context = TIER_CONTEXT.get(tier, "Inspection completed.")
         action = {
             "accept": "The tile can continue to packaging.",
@@ -82,7 +88,7 @@ class Explainer:
         }.get(tier, "Follow the SOP.")
         verdict = f" A human reviewer labeled this tile as {human_verdict}." if human_verdict else ""
         return {
-            "explanation": f"{context} The anomaly score is {score}, with the review threshold at {thresholds.get('review')} and the reject threshold at {thresholds.get('reject')}.{verdict} {action}",
+            "explanation": f"{context} The anomaly score is {score}, with the review threshold at {thresholds.get('review')} and the reject threshold at {thresholds.get('reject')}. The anomaly is concentrated in the {heat_region}.{verdict} {action}",
             "source": "template",
             "sop_sections": sop_sections,
         }

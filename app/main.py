@@ -1,6 +1,7 @@
 """Tile inspection API."""
 
 import io
+import json
 import uuid
 from pathlib import Path
 
@@ -51,7 +52,7 @@ async def create_inspection(image: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="uploaded file is not a valid image")
     result = get_inspector().inspect(pil_image)
     inspection_id = uuid.uuid4().hex
-    database.insert_inspection(inspection_id, image.filename or "unknown", result["model_version"], result["score"], result["tier"])
+    database.insert_inspection(inspection_id, image.filename or "unknown", result["model_version"], result["score"], result["tier"], json.dumps(result["heat"]))
     return {"inspection_id": inspection_id, "filename": image.filename, **result}
 
 
@@ -85,6 +86,25 @@ def metrics():
     return database.fetch_metrics()
 
 
+def describe_heat_region(heat: list[list[float]] | None) -> str:
+    """Convert the heatmap grid into a human-readable tile region."""
+    if not heat or not heat[0]:
+        return "center region (no heatmap available)"
+    rows = len(heat)
+    cols = len(heat[0])
+    max_value = max(max(row) for row in heat)
+    hot_cells = [(r, c) for r, row in enumerate(heat) for c, value in enumerate(row) if value >= 0.85 * max_value]
+    if not hot_cells:
+        return "center region"
+    avg_row = sum(r for r, _ in hot_cells) / len(hot_cells)
+    avg_col = sum(c for _, c in hot_cells) / len(hot_cells)
+    vertical = "upper" if avg_row < rows / 3 else "lower" if avg_row >= 2 * rows / 3 else "middle"
+    horizontal = "left" if avg_col < cols / 3 else "right" if avg_col >= 2 * cols / 3 else "center"
+    if horizontal == "center" and vertical == "middle":
+        return "center region"
+    return f"{vertical} {horizontal} region"
+
+
 @app.post("/api/v1/quality-guidance/{inspection_id}")
 @app.get("/api/v1/quality-guidance/{inspection_id}")
 def quality_guidance(inspection_id: str):
@@ -92,18 +112,21 @@ def quality_guidance(inspection_id: str):
     if row is None:
         raise HTTPException(status_code=404, detail="inspection not found")
     record = database.row_to_dict(row)
-    query = f"tile inspection tier {record['tier']} defect handling procedure"
+    inspector = get_inspector()
+    query = "defect types crack glue strip gray stroke oil rough surface handling procedure " + f"tier {record['tier']}"
     if record["reviewer_label"]:
         query += f" human verdict {record['reviewer_label']}"
-    sop_sections = get_rag().retrieve(query, top_k=2)
+    sop_sections = get_rag().retrieve(query, top_k=3)
+    heat_region = describe_heat_region(record.get("heat"))
     guidance = get_explainer().explain(
         tier=record["tier"],
         score=record["score"],
-        thresholds={"review": round(get_inspector().review_threshold, 4), "reject": round(get_inspector().reject_threshold, 4)},
+        thresholds={"review": round(inspector.review_threshold, 4), "reject": round(inspector.reject_threshold, 4)},
         human_verdict=record["reviewer_label"],
         sop_sections=sop_sections,
+        heat_region=heat_region,
     )
-    return {"inspection_id": inspection_id, **guidance}
+    return {"inspection_id": inspection_id, "heat_region": heat_region, **guidance}
 
 
 @app.get("/")

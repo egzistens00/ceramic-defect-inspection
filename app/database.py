@@ -1,5 +1,6 @@
 """SQL Server persistence for inspection records."""
 
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -20,10 +21,15 @@ BEGIN
         model_version NVARCHAR(64) NOT NULL,
         score FLOAT NOT NULL,
         tier NVARCHAR(16) NOT NULL,
+        heat NVARCHAR(MAX) NULL,
         reviewed BIT NOT NULL DEFAULT 0,
         reviewer_label NVARCHAR(16) NULL,
         created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
+END;
+IF COL_LENGTH('dbo.inspections', 'heat') IS NULL
+BEGIN
+    ALTER TABLE dbo.inspections ADD heat NVARCHAR(MAX) NULL;
 END;
 """
 
@@ -38,18 +44,18 @@ def init_schema() -> None:
         connection.commit()
 
 
-def insert_inspection(inspection_id: str, filename: str, model_version: str, score: float, tier: str) -> None:
+def insert_inspection(inspection_id: str, filename: str, model_version: str, score: float, tier: str, heat: str | None = None) -> None:
     with get_connection() as connection:
         connection.execute(
-            "INSERT INTO dbo.inspections (inspection_id, filename, model_version, score, tier) VALUES (?, ?, ?, ?, ?)",
-            (uuid.UUID(inspection_id), filename, model_version, score, tier),
+            "INSERT INTO dbo.inspections (inspection_id, filename, model_version, score, tier, heat) VALUES (?, ?, ?, ?, ?, ?)",
+            (uuid.UUID(inspection_id), filename, model_version, score, tier, heat),
         )
         connection.commit()
 
 
 def fetch_inspection(inspection_id: str):
     with get_connection() as connection:
-        cursor = connection.execute("SELECT inspection_id, filename, model_version, score, tier, reviewed, reviewer_label, created_at FROM dbo.inspections WHERE inspection_id = ?", (uuid.UUID(inspection_id),))
+        cursor = connection.execute("SELECT inspection_id, filename, model_version, score, tier, heat, reviewed, reviewer_label, created_at FROM dbo.inspections WHERE inspection_id = ?", (uuid.UUID(inspection_id),))
         return cursor.fetchone()
 
 
@@ -99,6 +105,7 @@ def row_to_dict(row) -> dict:
         "model_version": row.model_version,
         "score": row.score,
         "tier": row.tier,
+        "heat": json.loads(row.heat) if getattr(row, "heat", None) else None,
         "reviewed": bool(row.reviewed),
         "reviewer_label": row.reviewer_label,
         "created_at": row.created_at.isoformat() if isinstance(row.created_at, datetime) else str(row.created_at),

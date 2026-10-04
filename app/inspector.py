@@ -24,6 +24,7 @@ class Inspector:
         self.captured: dict[str, torch.Tensor] = {}
         self.backbone.layer3.register_forward_hook(lambda module, inputs, output: self.captured.__setitem__("features", output))
         self.preprocess = weights.transforms()
+        self.last_heat: list[list[float]] | None = None
 
     def inspect(self, image: Image.Image) -> dict:
         with torch.no_grad():
@@ -35,12 +36,13 @@ class Inspector:
         distances = (1 - similarity.max(dim=1).values).reshape(height, width).cpu().numpy()
         score = float(distances.max())
         tier = "reject" if score > self.reject_threshold else "review" if score > self.review_threshold else "accept"
+        self.last_heat = [[round(float(value), 4) for value in row] for row in distances]
         return {
             "model_version": MODEL_VERSION,
             "score": round(score, 4),
             "tier": tier,
             "thresholds": {"review": round(self.review_threshold, 4), "reject": round(self.reject_threshold, 4)},
-            "heat": [[round(float(value), 4) for value in row] for row in distances],
+            "heat": self.last_heat,
         }
 
 
