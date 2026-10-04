@@ -153,6 +153,9 @@ Environment variables:
 4. The service builds, downloads the model, and serves on the free plan
    (cold starts ~30-60 s after idle; SQLite persists within the instance)
 
+Release asset for this repository:
+`https://github.com/egzistens00/ceramic-defect-inspection/releases/download/model-v1/inspector_model.pt`
+
 Free-tier notes: no SQL Server on free plans — the app auto-detects this and
 uses SQLite, which is why the database layer switches backends transparently.
 
