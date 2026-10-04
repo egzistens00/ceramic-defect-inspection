@@ -2,8 +2,8 @@
 
 An AI-powered visual quality inspection system for ceramic parts. A photo of a
 ceramic tile goes in; a tiered accept / review / reject decision comes out —
-with the defect location highlighted, every inspection stored in SQL Server,
-and an explanation grounded in the quality-control SOP.
+with the defect located, the defect type identified, every inspection stored,
+and a plain-language explanation grounded in the quality-control SOP.
 
 Built as a fresh-graduate portfolio project targeting industrial visual
 inspection, the problem documented in recent ceramic-substrate manufacturing
@@ -91,7 +91,7 @@ validation normals only — the test set was never used for any decision):
 | Anomaly model | PyTorch, torchvision ResNet18 | `scripts/build_inspector.py` |
 | API service | FastAPI | `app/main.py` |
 | Inference | PyTorch, memory-bank nearest neighbor | `app/inspector.py` |
-| Persistence | SQL Server 2022 (Docker) | `app/database.py` |
+| Persistence | SQL Server 2022 (Docker) locally; automatic SQLite fallback in deployment | `app/database.py` |
 | Explanation | RAG: Hugging Face sentence embeddings + LLM API (Groq/OpenAI, template fallback) | `app/rag.py`, `app/explainer.py` |
 | Dashboard | vanilla HTML/JS | `app/static/index.html` |
 
@@ -134,10 +134,27 @@ Then open `http://127.0.0.1:8901/` for the dashboard or `/docs` for the API.
 
 Environment variables:
 
-- `INSPECTION_DB` — SQL Server connection string (override)
+- `INSPECTION_DB` — SQL Server connection string. Set = SQL Server mode
+  (local development). Unset = SQLite fallback (`inspections.db`), used on
+  free-tier hosting where SQL Server is unavailable
 - `GROQ_API_KEY` or `OPENAI_API_KEY` — enables real LLM explanations;
   without a key the system falls back to a deterministic template so the
   demo always works
+- `MODEL_RELEASE_URL` — used by `scripts/download_model.py` on hosts where
+  the 36 MB model artifact is fetched from a GitHub release instead of the repo
+
+## Deploying (free tier, Render)
+
+1. Push this repo to GitHub
+2. Attach `artifacts/inspector_model.pt` as a release asset (the model is
+   gitignored) and copy its download URL
+3. On render.com: New Web Service → connect the repo. `render.yaml` provides
+   the config; set env vars `GROQ_API_KEY` and `MODEL_RELEASE_URL`
+4. The service builds, downloads the model, and serves on the free plan
+   (cold starts ~30-60 s after idle; SQLite persists within the instance)
+
+Free-tier notes: no SQL Server on free plans — the app auto-detects this and
+uses SQLite, which is why the database layer switches backends transparently.
 
 ## Why the three-tier design
 

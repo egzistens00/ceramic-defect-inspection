@@ -39,7 +39,7 @@ def startup():
 @app.get("/health")
 def health():
     get_inspector()
-    database.get_connection().close()
+    database.fetch_metrics()
     return {"status": "ok", "model_version": MODEL_VERSION}
 
 

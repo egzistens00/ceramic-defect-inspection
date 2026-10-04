@@ -30,6 +30,8 @@ worker to compare it against the defect types in the SOP.
 2. What the worker should do next, based STRICTLY on the handling steps in
 the SOP sections above for this defect type.
 3. One sentence on why the score means this tier.
+Write PLAIN TEXT only - no markdown, no asterisks, no bold markers.
+Keep sentences short and simple, like speaking to a colleague.
 Do not invent procedures not in the SOP. Be concise."""
 
 
@@ -71,6 +73,7 @@ class Explainer:
             )
             response.raise_for_status()
             text = (response.json()["choices"][0]["message"].get("content") or "").strip()
+            text = text.replace("**", "").replace("__", "").strip()
             if not text:
                 raise ValueError("empty LLM response")
         else:
